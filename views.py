@@ -456,24 +456,52 @@ class AccountViewSet(viewsets.ViewSet, generics.ListAPIView, generics.CreateAPIV
         return Response(data={"message": "Dang ky thanh cong, cho xet duyet", "account": serializer.data},
                         status=status.HTTP_201_CREATED)
 
-    @action(methods=['post'], detail=True, url_path='confirm', permission_classes=[IsAdminUser])
+     @action(methods=['post'], detail=True, url_path='confirm', permission_classes=[IsAdminUser])
     def approve_account_lecturer(self, request, pk=None):  # Quan tri vien
         account = self.get_object()
         account.is_approved = True
         account.save()
 
-        # Gửi mail
-        if not account.last_name or not account.first_name:
-            self.send_missing_info_email(account.email, account.username)
+        #Gửi mail
+        missing_info = []
+        if not account.last_name:
+            missing_info.append("tên")
+        if not account.first_name:
+            missing_info.append("họ")
+        if missing_info:
+            self.send_missing_info_email(account.email, account.username, missing_info)
         else:
             self.send_approval_email(account.email, account.username)
 
         return Response(data={'messagsse': f'Tài khoản của {account.username} đã được xét duyệt thành công.'},
                         status=status.HTTP_200_OK)
 
-    def send_missing_info_email(self, to_email, username):
+    @action(methods=['patch'], detail=True, url_path='update-profile')
+    def update_profile(self, request, pk=None):
+        account = self.get_object()
+        serializer = serializers.AccountSerializer(account, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        if 'first_name' in request.data:
+            serializer.validated_data['first_name'] = request.data['first_name']
+
+        if 'last_name' in request.data:
+            serializer.validated_data['last_name'] = request.data['last_name']
+
+        serializer.save()
+
+        response_data = {"message": "Cập nhật thông tin thành công", "account": serializer.data}
+
+        return Response(data=response_data, status=status.HTTP_200_OK)
+
+    def send_missing_info_email(self, to_email, username, missing_info):
         subject = 'Thông tin tài khoản không đầy đủ'
-        message = f'Tài khoản của bạn ({username}) đã được xét duyệt, nhưng còn thiếu thông tin về tên. Vui lòng cập nhật thông tin để sử dụng dịch vụ.'
+        if len(missing_info) == 1:
+            message = f'Tài khoản của bạn ({username}) đã được xét duyệt, nhưng còn thiếu thông tin {missing_info[0]}. Vui lòng cập nhật thông tin để sử dụng dịch vụ.'
+        else:
+            missing_str = ", ".join(missing_info[:-1]) + f" và {missing_info[-1]}"
+            message = f'Tài khoản của bạn ({username}) đã được phê duyệt, nhưng thiếu thông tin về {missing_str}. Vui lòng cập nhật thông tin để sử dụng dịch vụ.'
+
         email_from = settings.EMAIL_HOST_USER
         recipient_list = [to_email]
         send_mail(subject, message, email_from, recipient_list)
